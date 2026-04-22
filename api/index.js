@@ -1,6 +1,5 @@
 // ============================================================
-// Sociabuzz → Roblox Bridge
-// Pure Node.js — tanpa Express, kompatibel Vercel Serverless
+// Sociabuzz → Roblox Bridge (Optimized)
 // ============================================================
 
 let latestDonation = {
@@ -18,73 +17,69 @@ function isBlocked(name) {
     return BLOCKED_NAMES.includes(name.trim().toLowerCase());
 }
 
-function parseBody(req) {
-    return new Promise((resolve, reject) => {
+async function parseBody(req) {
+    return new Promise((resolve) => {
         let raw = "";
         req.on("data", chunk => raw += chunk);
         req.on("end", () => {
-            try { resolve(JSON.parse(raw)); }
-            catch (e) { resolve({}); }
+            try { 
+                resolve(JSON.parse(raw)); 
+            } catch (e) { 
+                resolve({}); 
+            }
         });
-        req.on("error", reject);
     });
 }
 
 module.exports = async function handler(req, res) {
     const url = req.url.split("?")[0];
 
-    // ── GET / ────────────────────────────────────────────────
-    if (req.method === "GET" && (url === "/" || url === "")) {
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        return res.end("SERVER AKTIF");
-    }
+    // CORS Headers agar bisa dicek dari browser/external
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
 
-    // ── GET /api/donations/latest ────────────────────────────
-    if (req.method === "GET" && url === "/api/donations/latest") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify(latestDonation));
-    }
-
-    // ── POST /api/webhook/sociabuzz ──────────────────────────
-    if (req.method === "POST" && url === "/api/webhook/sociabuzz") {
-        const d = await parseBody(req);
-
-        console.log("[SOCIABUZZ RAW]", JSON.stringify(d));
-
-        // Ambil nama dari semua kemungkinan field Sociabuzz
-        const rawName =
-            d.donator_name ||
-            d.supporter_name ||
-            d.user_name ||
-            d.username ||
-            d.name ||
-            d.from ||
-            d.sender ||
-            "";
-
-        const finalName = rawName.trim();
-
-        // Block nama kosong / anonymous
-        if (isBlocked(finalName)) {
-            console.warn("[SOCIABUZZ] Nama diblok atau kosong:", JSON.stringify(d));
+    try {
+        if (req.method === "GET" && (url === "/" || url === "")) {
             res.writeHead(200, { "Content-Type": "text/plain" });
-            return res.end("OK_SKIPPED_NO_NAME");
+            return res.end("SERVER AKTIF");
         }
 
-        latestDonation = {
-            id:        d.order_id || d.invoice_id || d.transaction_id || Date.now().toString(),
-            donator:   finalName,
-            amount:    parseInt(d.amount_raw || d.amount || 0),
-            message:   d.message || d.note || "",
-            timestamp: Math.floor(Date.now() / 1000)
-        };
+        if (req.method === "GET" && url === "/api/donations/latest") {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            return res.end(JSON.stringify(latestDonation));
+        }
 
-        console.log("[SOCIABUZZ] OK:", finalName, "| Rp", latestDonation.amount);
-        res.writeHead(200, { "Content-Type": "text/plain" });
-        return res.end("OK");
+        if (req.method === "POST" && url === "/api/webhook/sociabuzz") {
+            const d = await parseBody(req);
+            
+            // Mencari nama donatur dari berbagai kemungkinan field JSON
+            const rawName = d.donator_name || d.supporter_name || d.user_name || d.name || "";
+            const finalName = rawName.trim();
+
+            if (isBlocked(finalName)) {
+                res.writeHead(200, { "Content-Type": "text/plain" });
+                return res.end("OK_SKIPPED");
+            }
+
+            // Update memori server
+            latestDonation = {
+                id: d.order_id || d.transaction_id || Date.now().toString(),
+                donator: finalName,
+                amount: parseInt(d.amount_raw || d.amount || 0),
+                message: d.message || d.note || "",
+                timestamp: Math.floor(Date.now() / 1000)
+            };
+
+            console.log(`[SOCIABUZZ] Donasi Baru: ${finalName} - Rp${latestDonation.amount}`);
+            res.writeHead(200, { "Content-Type": "text/plain" });
+            return res.end("OK");
+        }
+    } catch (err) {
+        console.error("Internal Error:", err);
+        res.writeHead(500);
+        res.end("Internal Server Error");
     }
 
-    // ── 404 fallback ─────────────────────────────────────────
-    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.writeHead(404);
     res.end("NOT FOUND");
 };
