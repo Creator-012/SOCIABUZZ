@@ -1,5 +1,5 @@
 // ============================================================
-// Sociabuzz → Roblox Bridge (Optimized)
+// Sociabuzz → Roblox Bridge (Vercel Serverless)
 // ============================================================
 
 let latestDonation = {
@@ -34,25 +34,28 @@ async function parseBody(req) {
 module.exports = async function handler(req, res) {
     const url = req.url.split("?")[0];
 
-    // CORS Headers agar bisa dicek dari browser/external
+    // CORS Headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
 
     try {
-        if (req.method === "GET" && (url === "/" || url === "")) {
+        // 1. Cek Status Server
+        if (req.method === "GET" && (url === "/api" || url === "/api/index")) {
             res.writeHead(200, { "Content-Type": "text/plain" });
             return res.end("SERVER AKTIF");
         }
 
+        // 2. Endpoint untuk Roblox (Polling)
         if (req.method === "GET" && url === "/api/donations/latest") {
             res.writeHead(200, { "Content-Type": "application/json" });
             return res.end(JSON.stringify(latestDonation));
         }
 
-        if (req.method === "POST" && url === "/api/webhook/sociabuzz") {
+        // 3. Endpoint untuk Webhook Sociabuzz
+        // URL di Dashboard Sociabuzz harus: https://sociabuzz-rust.vercel.app/api/webhook/sociabuzz
+        if (req.method === "POST" && (url === "/api/webhook/sociabuzz" || url === "/api/webhook")) {
             const d = await parseBody(req);
             
-            // Mencari nama donatur dari berbagai kemungkinan field JSON
             const rawName = d.donator_name || d.supporter_name || d.user_name || d.name || "";
             const finalName = rawName.trim();
 
@@ -61,7 +64,6 @@ module.exports = async function handler(req, res) {
                 return res.end("OK_SKIPPED");
             }
 
-            // Update memori server
             latestDonation = {
                 id: d.order_id || d.transaction_id || Date.now().toString(),
                 donator: finalName,
